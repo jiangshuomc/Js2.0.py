@@ -20,7 +20,30 @@ jobs:
       - name: Build debug APK
         shell: bash
         run: |
-          yes | buildozer -v android debug
+          export PIP_NO_CACHE_DIR=1
+          set -o pipefail
+          yes | buildozer -v android debug 2>&1 | tee /tmp/build.log
+        continue-on-error: true
+
+      - name: Show error lines
+        if: always()
+        shell: bash
+        run: |
+          echo "===== LAST 40 LINES ====="
+          tail -n 40 /tmp/build.log || true
+          echo "===== ERROR LINES ====="
+          grep -nE "# ERROR|# \(\)|ERROR:|Traceback|Error:|failed|Command failed|not found|No matching" /tmp/build.log | tail -n 40 || true
+
+      - name: Fail if no APK
+        if: always()
+        shell: bash
+        run: |
+          if ls bin/*.apk >/dev/null 2>&1; then
+            echo "APK OK"
+          else
+            echo "::error::No APK produced - see 'Show error lines' step above"
+            exit 1
+          fi
 
       - name: Upload APK
         if: always()

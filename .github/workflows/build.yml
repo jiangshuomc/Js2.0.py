@@ -1,8 +1,6 @@
 name: Build Android APK
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,19 +9,24 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: kivy/buildozer:latest
+      options: --privileged
     timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build with Buildozer
-        id: buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        with:
-          command: buildozer android debug
+      - name: Build debug APK
+        shell: bash
+        run: |
+          export FORCE_BUILDozer=1
+          yes | buildozer -v android debug
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: JSStudio-APK
-          path: ${{ steps.buildozer.outputs.apk_path }}
+          path: bin/*.apk
+          if-no-files-found: warn

@@ -20,7 +20,6 @@ jobs:
       - name: Build debug APK
         shell: bash
         run: |
-          export FORCE_BUILDozer=1
           yes | buildozer -v android debug
 
       - name: Upload APK

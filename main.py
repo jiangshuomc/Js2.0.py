@@ -1,3 +1,7 @@
+"""JS Studio - Memo / Diary / Vault
+Single-file Kivy application. Android only, English UI, local JSON storage.
+"""
+
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.boxlayout import BoxLayout
@@ -11,367 +15,453 @@ from kivy.clock import Clock
 from kivy.utils import get_color_from_hex
 from kivy.metrics import dp
 from kivy.core.window import Window
+
 import os
 import json
 import hashlib
-from datetime import datetime, date
+from datetime import date
 
-# ─── 颜色 ───
-BG = get_color_from_hex("#0a0a1a")
-CARD = get_color_from_hex("#12122a")
-ACCENT = get_color_from_hex("#4fc3f7")
+# ---------------- Theme ----------------
+BG         = get_color_from_hex("#0a0a1a")
+CARD       = get_color_from_hex("#12122a")
+ACCENT     = get_color_from_hex("#4fc3f7")
 ACCENT_DIM = get_color_from_hex("#263238")
-TEXT = (1, 1, 1, 1)
-TEXT_DIM = get_color_from_hex("#546e7a")
-DANGER = get_color_from_hex("#ef5350")
-SUCCESS = get_color_from_hex("#66bb6a")
+TEXT       = (1, 1, 1, 1)
+TEXT_DIM   = get_color_from_hex("#546e7a")
+DANGER     = get_color_from_hex("#ef5350")
+SUCCESS    = get_color_from_hex("#66bb6a")
+INPUT_BG   = (0.10, 0.10, 0.15, 1)
+
 Window.clearcolor = BG
 
-# ─── 数据存储 ───
-DATA_DIR = None
 
-def get_dir():
-    global DATA_DIR
-    if DATA_DIR is None:
-        try:
-            DATA_DIR = os.path.join(App.get_running_app().user_data_dir, "data")
-        except Exception:
-            DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-        os.makedirs(DATA_DIR, exist_ok=True)
-    return DATA_DIR
+# ---------------- Storage ----------------
+def get_data_dir():
+    """App-private directory. Works on desktop and Android."""
+    try:
+        base = App.get_running_app().user_data_dir
+    except Exception:
+        base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "data")
+    os.makedirs(path, exist_ok=True)
+    return path
 
-def load_json(name):
-    path = os.path.join(get_dir(), name)
+
+def load_json(filename, default):
+    path = os.path.join(get_data_dir(), filename)
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (ValueError, OSError):
+            return default
+    return default
 
-def save_json(name, data):
-    path = os.path.join(get_dir(), name)
-    with open(path, "w", encoding="utf-8") as f:
+
+def save_json(filename, data):
+    path = os.path.join(get_data_dir(), filename)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
-# ═══════════════════════════════════════════
-# SPLASH
-# ═══════════════════════════════════════════
+
+def make_field(hint, multiline=False, password=False):
+    return TextInput(
+        hint_text=hint,
+        multiline=multiline,
+        password=password,
+        background_color=INPUT_BG,
+        foreground_color=TEXT,
+        hint_text_color=TEXT_DIM,
+        cursor_color=ACCENT,
+        padding=(dp(10), dp(10)),
+        size_hint=(1, None),
+        height=dp(84) if multiline else dp(44),
+    )
+
+
+def popup_with(title, content_widgets, height=0.6):
+    box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(10))
+    for w in content_widgets:
+        box.add_widget(w)
+    return Popup(title=title, content=box, size_hint=(0.9, height))
+
+
+# ---------------- Splash ----------------
 class SplashScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = "splash"
         self.opacity = 0
+
         layout = BoxLayout(orientation="vertical", spacing=dp(10))
         self.logo = Label(text="JS", font_size=dp(42), color=ACCENT,
                           size_hint=(1, 0.55), halign="center", valign="middle")
         self.en = Label(text="JS STUDIO", font_size=dp(14), color=TEXT_DIM,
                         size_hint=(1, 0.15), halign="center")
         self.foot = Label(text="Your world, your rules", font_size=dp(12),
-                          color=get_color_from_hex("#37474f"), size_hint=(1, 0.15),
-                          halign="center", opacity=0)
+                          color=get_color_from_hex("#37474f"),
+                          size_hint=(1, 0.15), halign="center", opacity=0)
         layout.add_widget(self.logo)
         layout.add_widget(self.en)
         layout.add_widget(self.foot)
         self.add_widget(layout)
-        Clock.schedule_once(self.step1, 0.2)
 
-    def step1(self, dt):
+        Clock.schedule_once(self._step1, 0.2)
+
+    def _step1(self, dt):
         Animation(opacity=1, duration=0.7).start(self)
         self.logo.font_size = dp(55)
         Animation(font_size=dp(42), duration=0.8, t="out_bounce").start(self.logo)
-        Clock.schedule_once(self.step2, 1.0)
+        Clock.schedule_once(self._step2, 1.0)
 
-    def step2(self, dt):
+    def _step2(self, dt):
         Animation(opacity=1, duration=0.6).start(self.foot)
-        Clock.schedule_once(self.step3, 2.0)
+        Clock.schedule_once(self._step3, 2.0)
 
-    def step3(self, dt):
+    def _step3(self, dt):
         anim = Animation(opacity=0, duration=0.6)
-        anim.bind(on_complete=lambda *a: self._go())
+        anim.bind(on_complete=lambda *a: self._switch())
         anim.start(self)
 
-    def _go(self):
+    def _switch(self):
         if self.manager:
             self.manager.current = "home"
 
-# ═══════════════════════════════════════════
-# HOME
-# ═══════════════════════════════════════════
+
+# ---------------- Home ----------------
 class HomeScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = "home"
+
         root = BoxLayout(orientation="vertical", padding=dp(24), spacing=dp(20))
         root.add_widget(Label(text="JS STUDIO", font_size=dp(28), color=ACCENT,
-                              size_hint=(1, 0.15), halign="center"))
-        cards = BoxLayout(orientation="vertical", spacing=dp(16), size_hint=(1, 0.7))
-        for name, target in [("MEMO", "memo"), ("DIARY", "diary"), ("VAULT", "vault")]:
-            btn = Button(text=name, font_size=dp(20), background_color=CARD, color=TEXT,
-                         size_hint=(1, None), height=dp(70))
-            btn.bind(on_press=lambda x, t=target: setattr(self.manager, "current", t))
+                              size_hint=(1, 0.12), halign="center"))
+        root.add_widget(Label(text="Your world, your rules", font_size=dp(12),
+                              color=TEXT_DIM, size_hint=(1, 0.06), halign="center"))
+
+        cards = BoxLayout(orientation="vertical", spacing=dp(14), size_hint=(1, 0.7))
+        for label, target in (("MEMO", "memo"), ("DIARY", "diary"), ("VAULT", "vault")):
+            btn = Button(text=label, font_size=dp(20), background_color=CARD,
+                         color=TEXT, size_hint=(1, None), height=dp(72))
+            btn.bind(on_press=lambda inst, t=target: self._go(t))
             cards.add_widget(btn)
         root.add_widget(cards)
-        root.add_widget(Label(text="", size_hint=(1, 0.15)))
+        root.add_widget(Label(text="", size_hint=(1, 0.12)))
         self.add_widget(root)
 
-# ═══════════════════════════════════════════
-# MEMO
-# ═══════════════════════════════════════════
+    def _go(self, target):
+        if self.manager:
+            self.manager.current = target
+
+
+# ---------------- Memo ----------------
 class MemoScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = "memo"
-        self.memos = load_json("memos.json") or []
+        self.memos = load_json("memos.json", [])
+
         root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
-        root.add_widget(Label(text="MEMO", font_size=dp(24), color=ACCENT, size_hint=(1, 0.1)))
-        self.scroll = ScrollView(size_hint=(1, 0.75))
+        root.add_widget(Label(text="MEMO", font_size=dp(24), color=ACCENT,
+                              size_hint=(1, 0.08), halign="center"))
+
+        scroller = ScrollView(size_hint=(1, 0.78))
         self.box = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None)
         self.box.bind(minimum_height=self.box.setter("height"))
-        self.scroll.add_widget(self.box)
-        root.add_widget(self.scroll)
-        root.add_widget(Button(text="+ NEW MEMO", font_size=dp(16), background_color=ACCENT, color=BG,
-                               size_hint=(1, 0.1), on_press=self.add_memo))
-        self.add_widget(root)
-        self.refresh()
+        scroller.add_widget(self.box)
+        root.add_widget(scroller)
 
-    def refresh(self):
+        add = Button(text="+ NEW MEMO", font_size=dp(16), background_color=ACCENT,
+                     color=BG, size_hint=(1, 0.1))
+        add.bind(on_press=self._ask_new)
+        root.add_widget(add)
+        self.add_widget(root)
+        self._refresh()
+
+    def _refresh(self):
         self.box.clear_widgets()
-        for i, m in enumerate(self.memos):
-            row = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(8))
-            row.add_widget(Button(text="✓" if m.get("done") else "○", size_hint=(None, 1), width=dp(40),
-                                  background_color=SUCCESS if m.get("done") else ACCENT_DIM,
-                                  on_press=lambda x, idx=i: self.toggle(idx)))
-            lbl = Label(text=m.get("text", "")[:35], color=TEXT_DIM if m.get("done") else TEXT,
-                        size_hint=(1, 1), halign="left")
+        if not self.memos:
+            self.box.add_widget(Label(text="No memo yet", color=TEXT_DIM,
+                                      size_hint_y=None, height=dp(40)))
+            return
+        for i, memo in enumerate(self.memos):
+            row = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(8))
+            done = memo.get("done", False)
+            check = Button(text="DONE" if done else "OPEN", size_hint=(None, 1),
+                           width=dp(64), font_size=dp(11),
+                           background_color=SUCCESS if done else ACCENT_DIM, color=TEXT)
+            check.bind(on_press=lambda inst, idx=i: self._toggle(idx))
+            lbl = Label(text=str(memo.get("text", ""))[:36],
+                        color=TEXT_DIM if done else TEXT,
+                        size_hint=(1, 1), halign="left", valign="middle")
             lbl.bind(size=lbl.setter("text_size"))
+            delete = Button(text="X", size_hint=(None, 1), width=dp(44),
+                            background_color=DANGER, color=TEXT)
+            delete.bind(on_press=lambda inst, idx=i: self._delete(idx))
+            row.add_widget(check)
             row.add_widget(lbl)
-            row.add_widget(Button(text="✕", size_hint=(None, 1), width=dp(40), background_color=DANGER,
-                                  on_press=lambda x, idx=i: self.delete(idx)))
+            row.add_widget(delete)
             self.box.add_widget(row)
 
-    def add_memo(self, instance):
-        ti = TextInput(hint_text="Type your memo...", multiline=True,
-                       background_color=(0.1, 0.1, 0.15, 1), foreground_color=TEXT, hint_text_color=TEXT_DIM)
-        popup = Popup(title="New Memo", content=ti, size_hint=(0.85, 0.4))
-        popup.content = BoxLayout(orientation="vertical", spacing=dp(10))
-        popup.content.add_widget(ti)
-        btn = Button(text="SAVE", background_color=ACCENT, color=BG)
-        popup.content.add_widget(btn)
-        btn.bind(on_press=lambda x: self._save(ti.text, popup))
+    def _ask_new(self, inst):
+        ti = make_field("Type your memo...", multiline=True)
+        save = Button(text="SAVE", background_color=ACCENT, color=BG)
+        popup = popup_with("New Memo", [ti, save], height=0.45)
+        save.bind(on_press=lambda i: self._save(ti.text, popup))
         popup.open()
 
     def _save(self, text, popup):
         if text.strip():
             self.memos.append({"text": text.strip(), "done": False})
             save_json("memos.json", self.memos)
-            self.refresh()
+            self._refresh()
         popup.dismiss()
 
-    def toggle(self, idx):
-        self.memos[idx]["done"] = not self.memos[idx].get("done", False)
-        save_json("memos.json", self.memos)
-        self.refresh()
+    def _toggle(self, idx):
+        if 0 <= idx < len(self.memos):
+            self.memos[idx]["done"] = not self.memos[idx].get("done", False)
+            save_json("memos.json", self.memos)
+            self._refresh()
 
-    def delete(self, idx):
-        self.memos.pop(idx)
-        save_json("memos.json", self.memos)
-        self.refresh()
+    def _delete(self, idx):
+        if 0 <= idx < len(self.memos):
+            self.memos.pop(idx)
+            save_json("memos.json", self.memos)
+            self._refresh()
 
-# ═══════════════════════════════════════════
-# DIARY
-# ═══════════════════════════════════════════
+
+# ---------------- Diary ----------------
 class DiaryScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = "diary"
-        self.entries = load_json("diary.json") or {}
-        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
-        root.add_widget(Label(text="DIARY", font_size=dp(24), color=ACCENT, size_hint=(1, 0.1)))
-        root.add_widget(Label(text=str(date.today()), font_size=dp(14), color=TEXT_DIM, size_hint=(1, 0.08)))
-        self.scroll = ScrollView(size_hint=(1, 0.6))
-        self.box = BoxLayout(orientation="vertical", spacing=dp(8))
-        self.scroll.add_widget(self.box)
-        root.add_widget(self.scroll)
-        btns = BoxLayout(size_hint=(1, 0.15), spacing=dp(10))
-        self.wbtn = Button(text="EDIT TODAY" if str(date.today()) in self.entries else "WRITE TODAY",
-                           background_color=ACCENT, color=BG, on_press=self.write_today)
-        btns.add_widget(self.wbtn)
-        btns.add_widget(Button(text="HISTORY", background_color=CARD, color=TEXT, on_press=self.history))
-        root.add_widget(btns)
-        self.add_widget(root)
-        self.refresh()
+        self.entries = load_json("diary.json", {})
 
-    def refresh(self):
+        root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
+        root.add_widget(Label(text="DIARY", font_size=dp(24), color=ACCENT,
+                              size_hint=(1, 0.08), halign="center"))
+        self.today = str(date.today())
+        root.add_widget(Label(text=self.today, font_size=dp(13), color=TEXT_DIM,
+                              size_hint=(1, 0.05), halign="center"))
+
+        scroller = ScrollView(size_hint=(1, 0.62))
+        self.box = BoxLayout(orientation="vertical", spacing=dp(8))
+        scroller.add_widget(self.box)
+        root.add_widget(scroller)
+
+        actions = BoxLayout(size_hint=(1, 0.14), spacing=dp(10))
+        self.write_btn = Button(text="WRITE", background_color=ACCENT, color=BG, font_size=dp(15))
+        self.write_btn.bind(on_press=self._write)
+        history = Button(text="HISTORY", background_color=CARD, color=TEXT, font_size=dp(15))
+        history.bind(on_press=self._history)
+        actions.add_widget(self.write_btn)
+        actions.add_widget(history)
+        root.add_widget(actions)
+        self.add_widget(root)
+        self._refresh()
+
+    def _refresh(self):
         self.box.clear_widgets()
         today = str(date.today())
-        txt = self.entries.get(today, "No entry today")
-        lbl = Label(text=txt[:120] + ("..." if len(txt) > 120 else ""), color=TEXT,
-                    size_hint_y=None, height=dp(80), halign="left", valign="top")
+        text = self.entries.get(today)
+        self.write_btn.text = "EDIT" if text else "WRITE"
+        lbl = Label(text=(text if text else "No entry today."),
+                    color=TEXT if text else TEXT_DIM, size_hint_y=None, height=dp(90),
+                    halign="left", valign="top")
         lbl.bind(size=lbl.setter("text_size"))
         self.box.add_widget(lbl)
-        self.wbtn.text = "EDIT TODAY" if today in self.entries else "WRITE TODAY"
 
-    def write_today(self, instance):
+    def _write(self, inst):
         today = str(date.today())
-        ti = TextInput(text=self.entries.get(today, ""), multiline=True,
-                       background_color=(0.1, 0.1, 0.15, 1), foreground_color=TEXT, hint_text_color=TEXT_DIM)
-        popup = Popup(title=today, content=BoxLayout(orientation="vertical", spacing=dp(10)), size_hint=(0.9, 0.7))
-        popup.content.add_widget(ti)
-        btn = Button(text="SAVE", background_color=ACCENT, color=BG)
-        popup.content.add_widget(btn)
-        btn.bind(on_press=lambda x: self._save(today, ti.text, popup))
+        ti = make_field("Write your day...", multiline=True)
+        ti.text = self.entries.get(today, "")
+        save = Button(text="SAVE", background_color=ACCENT, color=BG)
+        popup = popup_with(today, [ti, save], height=0.7)
+        save.bind(on_press=lambda i: self._save(today, ti.text, popup))
         popup.open()
 
     def _save(self, day, text, popup):
         if text.strip():
             self.entries[day] = text.strip()
             save_json("diary.json", self.entries)
-            self.refresh()
+            self._refresh()
         popup.dismiss()
 
-    def history(self, instance):
-        box = BoxLayout(orientation="vertical", spacing=dp(5))
-        sc = ScrollView()
-        lay = BoxLayout(orientation="vertical", spacing=dp(5), size_hint_y=None)
+    def _history(self, inst):
+        lay = BoxLayout(orientation="vertical", spacing=dp(4), size_hint_y=None)
         lay.bind(minimum_height=lay.setter("height"))
-        for d in sorted(self.entries.keys(), reverse=True):
-            row = BoxLayout(size_hint_y=None, height=dp(40))
-            row.add_widget(Label(text=d, color=ACCENT, size_hint=(0.35, 1)))
-            row.add_widget(Label(text=self.entries[d][:40], color=TEXT_DIM, size_hint=(0.65, 1), halign="left"))
+        scroller = ScrollView()
+        scroller.add_widget(lay)
+        close = Button(text="CLOSE", background_color=DANGER, color=TEXT, size_hint=(1, 0.12))
+        popup = popup_with("History", [scroller, close], height=0.75)
+
+        if not self.entries:
+            lay.add_widget(Label(text="No records", color=TEXT_DIM,
+                                 size_hint_y=None, height=dp(36)))
+        for day in sorted(self.entries.keys(), reverse=True):
+            row = BoxLayout(size_hint_y=None, height=dp(38))
+            row.add_widget(Label(text=day, color=ACCENT, size_hint=(0.3, 1)))
+            preview = self.entries[day].replace("\n", " ")[:32]
+            row.add_widget(Label(text=preview, color=TEXT_DIM,
+                                 size_hint=(0.7, 1), halign="left"))
             lay.add_widget(row)
-        sc.add_widget(lay)
-        box.add_widget(sc)
-        close = Button(text="CLOSE", background_color=DANGER, color=TEXT, size_hint=(1, 0.15))
-        popup = Popup(title="History", content=box, size_hint=(0.85, 0.7))
         close.bind(on_press=popup.dismiss)
-        box.add_widget(close)
         popup.open()
 
-# ═══════════════════════════════════════════
-# VAULT
-# ═══════════════════════════════════════════
+
+# ---------------- Vault ----------------
 class VaultScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = "vault"
         self.unlocked = False
-        self.cfg = load_json("config.json") or {}
-        self.items = load_json("vault.json") or []
+        self.cfg = load_json("config.json", {})
+        self.items = load_json("vault.json", [])
         self.root_lay = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
         self.add_widget(self.root_lay)
-        self.show_lock()
+        self._show_lock()
 
-    def clear(self):
-        self.root_lay.clear_widgets()
-
-    def show_lock(self):
-        self.clear()
+    # -- lock / unlock --
+    def _show_lock(self):
         self.unlocked = False
-        self.root_lay.add_widget(Label(text="🔒 VAULT LOCKED", font_size=dp(22), color=ACCENT, size_hint=(1, 0.2)))
+        self.root_lay.clear_widgets()
+        self.root_lay.add_widget(Label(text="VAULT LOCKED", font_size=dp(22),
+                                       color=ACCENT, size_hint=(1, 0.18)))
+        self.pw = make_field("Enter password" if self.cfg.get("hash") else "Set password (min 4)")
+        self.pw.password = True
+        self.root_lay.add_widget(self.pw)
+
         if self.cfg.get("hash"):
-            self.pw = TextInput(hint_text="Enter password", password=True,
-                                background_color=(0.1,0.1,0.15,1), foreground_color=TEXT, hint_text_color=TEXT_DIM)
-            self.root_lay.add_widget(self.pw)
-            btn = Button(text="UNLOCK", background_color=ACCENT, color=BG, size_hint=(1, 0.15))
-            btn.bind(on_press=self.unlock)
-            self.root_lay.add_widget(btn)
+            action = Button(text="UNLOCK", background_color=ACCENT, color=BG, size_hint=(1, 0.14))
+            action.bind(on_press=self._unlock)
+            self.root_lay.add_widget(action)
         else:
-            self.pw = TextInput(hint_text="Set password (min 4)", password=True,
-                                background_color=(0.1,0.1,0.15,1), foreground_color=TEXT, hint_text_color=TEXT_DIM)
-            self.pw2 = TextInput(hint_text="Confirm", password=True,
-                                 background_color=(0.1,0.1,0.15,1), foreground_color=TEXT, hint_text_color=TEXT_DIM)
-            self.root_lay.add_widget(self.pw)
+            self.pw2 = make_field("Confirm password")
+            self.pw2.password = True
             self.root_lay.add_widget(self.pw2)
-            btn = Button(text="SET PASSWORD", background_color=SUCCESS, color=BG, size_hint=(1, 0.15))
-            btn.bind(on_press=self.set_pw)
-            self.root_lay.add_widget(btn)
+            action = Button(text="SET PASSWORD", background_color=SUCCESS, color=BG, size_hint=(1, 0.14))
+            action.bind(on_press=self._set_password)
+            self.root_lay.add_widget(action)
 
-    def set_pw(self, instance):
-        if self.pw.text != self.pw2.text:
-            return self.msg("No match")
-        if len(self.pw.text) < 4:
-            return self.msg("Too short")
-        self.cfg["hash"] = hashlib.sha256(self.pw.text.encode()).hexdigest()
+    def _set_password(self, inst):
+        p1, p2 = self.pw.text, getattr(self, "pw2", self.pw).text
+        if p1 != p2:
+            return self._toast("Passwords do not match")
+        if len(p1) < 4:
+            return self._toast("Password too short")
+        self.cfg["hash"] = hashlib.sha256(p1.encode("utf-8")).hexdigest()
         save_json("config.json", self.cfg)
-        Clock.schedule_once(lambda dt: self.show_vault(), 0.3)
+        self.pw.text = ""
+        self._toast("Password set")
+        Clock.schedule_once(lambda dt: self._show_vault(), 0.6)
 
-    def unlock(self, instance):
-        if hashlib.sha256(self.pw.text.encode()).hexdigest() == self.cfg.get("hash"):
-            self.show_vault()
+    def _unlock(self, inst):
+        if hashlib.sha256(self.pw.text.encode("utf-8")).hexdigest() == self.cfg.get("hash"):
+            self.pw.text = ""
+            self._show_vault()
         else:
-            self.msg("Wrong")
+            self.pw.text = ""
+            self._toast("Wrong password")
 
-    def show_vault(self):
-        self.clear()
+    # -- main --
+    def _show_vault(self):
         self.unlocked = True
-        self.root_lay.add_widget(Label(text="VAULT", font_size=dp(24), color=ACCENT, size_hint=(1, 0.08)))
-        self.root_lay.add_widget(Button(text="🔒 LOCK", background_color=DANGER, color=TEXT,
-                                        size_hint=(1, 0.08), on_press=lambda x: self.show_lock()))
-        sc = ScrollView(size_hint=(1, 0.7))
-        self.vbox = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None)
-        self.vbox.bind(minimum_height=self.vbox.setter("height"))
-        sc.add_widget(self.vbox)
-        self.root_lay.add_widget(sc)
-        self.root_lay.add_widget(Button(text="+ ADD ENTRY", background_color=ACCENT, color=BG,
-                                        size_hint=(1, 0.1), on_press=self.add_entry))
-        self.refresh()
+        self.root_lay.clear_widgets()
+        self.root_lay.add_widget(Label(text="VAULT", font_size=dp(24), color=ACCENT,
+                                       size_hint=(1, 0.07)))
+        lock = Button(text="LOCK", background_color=DANGER, color=TEXT, size_hint=(1, 0.07))
+        lock.bind(on_press=lambda inst: self._show_lock())
+        self.root_lay.add_widget(lock)
 
-    def refresh(self):
-        self.vbox.clear_widgets()
-        for i, it in enumerate(self.items):
-            row = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(5))
-            row.add_widget(Label(text=it.get("title",""), color=TEXT, size_hint=(0.4,1), halign="left"))
-            row.add_widget(Label(text="••••", color=TEXT_DIM, size_hint=(0.3,1)))
-            row.add_widget(Button(text="👁", size_hint=(0.15,1), background_color=CARD, on_press=lambda x,idx=i: self.view(idx)))
-            row.add_widget(Button(text="✕", size_hint=(0.15,1), background_color=DANGER, on_press=lambda x,idx=i: self.delete(idx)))
-            self.vbox.add_widget(row)
+        scroller = ScrollView(size_hint=(1, 0.72))
+        self.box = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None)
+        self.box.bind(minimum_height=self.box.setter("height"))
+        scroller.add_widget(self.box)
+        self.root_lay.add_widget(scroller)
 
-    def add_entry(self, instance):
-        content = BoxLayout(orientation="vertical", spacing=dp(8))
-        t = TextInput(hint_text="Title", background_color=(0.1,0.1,0.15,1), foreground_color=TEXT, hint_text_color=TEXT_DIM)
-        u = TextInput(hint_text="Username", background_color=(0.1,0.1,0.15,1), foreground_color=TEXT, hint_text_color=TEXT_DIM)
-        p = TextInput(hint_text="Password", password=True, background_color=(0.1,0.1,0.15,1), foreground_color=TEXT, hint_text_color=TEXT_DIM)
-        n = TextInput(hint_text="Note", background_color=(0.1,0.1,0.15,1), foreground_color=TEXT, hint_text_color=TEXT_DIM)
-        content.add_widget(t); content.add_widget(u); content.add_widget(p); content.add_widget(n)
-        popup = Popup(title="New Entry", content=content, size_hint=(0.85, 0.7))
-        btn = Button(text="SAVE", background_color=ACCENT, color=BG)
-        content.add_widget(btn)
-        btn.bind(on_press=lambda x: self._save(t.text,u.text,p.text,n.text,popup))
+        add = Button(text="+ ADD ENTRY", background_color=ACCENT, color=BG, size_hint=(1, 0.1))
+        add.bind(on_press=self._ask_new)
+        self.root_lay.add_widget(add)
+        self._refresh()
+
+    def _refresh(self):
+        self.box.clear_widgets()
+        if not self.items:
+            self.box.add_widget(Label(text="No entry yet", color=TEXT_DIM,
+                                      size_hint_y=None, height=dp(40)))
+            return
+        for i, item in enumerate(self.items):
+            row = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(4))
+            title = Label(text=str(item.get("title", ""))[:18], color=TEXT,
+                          size_hint=(0.36, 1), halign="left")
+            title.bind(size=title.setter("text_size"))
+            view = Button(text="VIEW", size_hint=(0.22, 1), font_size=dp(11),
+                          background_color=CARD, color=ACCENT)
+            view.bind(on_press=lambda inst, idx=i: self._view(idx))
+            delete = Button(text="X", size_hint=(0.14, 1), background_color=DANGER)
+            delete.bind(on_press=lambda inst, idx=i: self._delete(idx))
+            row.add_widget(title)
+            row.add_widget(Label(text="******", color=TEXT_DIM, size_hint=(0.28, 1)))
+            row.add_widget(view)
+            row.add_widget(delete)
+            self.box.add_widget(row)
+
+    def _ask_new(self, inst):
+        t = make_field("Title")
+        u = make_field("Username / Email")
+        p = make_field("Password", password=True)
+        n = make_field("Note")
+        save = Button(text="SAVE", background_color=ACCENT, color=BG)
+        popup = popup_with("New Entry", [t, u, p, n, save], height=0.8)
+        save.bind(on_press=lambda i: self._save(t.text, u.text, p.text, n.text, popup))
         popup.open()
 
     def _save(self, title, user, pwd, note, popup):
         if title.strip() and pwd.strip():
-            self.items.append({"title":title,"user":user,"password":pwd,"note":note})
+            self.items.append({"title": title.strip(), "user": user.strip(),
+                               "password": pwd, "note": note.strip()})
             save_json("vault.json", self.items)
-            self.refresh()
+            self._refresh()
         popup.dismiss()
 
-    def view(self, idx):
-        it = self.items[idx]
-        box = BoxLayout(orientation="vertical", spacing=dp(10))
-        for k in ["title","user","password","note"]:
-            box.add_widget(Label(text=f"{k.upper()}: {it.get(k,'')}", color=ACCENT if k=="password" else TEXT))
-        popup = Popup(title="Details", content=box, size_hint=(0.8, 0.5))
+    def _view(self, idx):
+        if not (0 <= idx < len(self.items)):
+            return
+        item = self.items[idx]
+        widgets = [
+            Label(text="TITLE: " + str(item.get("title", "")), color=TEXT, size_hint=(1, None), height=dp(30)),
+            Label(text="USER: " + str(item.get("user", "")), color=TEXT, size_hint=(1, None), height=dp(30)),
+            Label(text="PASSWORD: " + str(item.get("password", "")), color=ACCENT,
+                  size_hint=(1, None), height=dp(30)),
+            Label(text="NOTE: " + str(item.get("note", "")), color=TEXT_DIM,
+                  size_hint=(1, None), height=dp(60)),
+        ]
         close = Button(text="CLOSE", background_color=CARD, color=TEXT)
+        popup = popup_with("Details", widgets + [close], height=0.5)
         close.bind(on_press=popup.dismiss)
-        box.add_widget(close)
         popup.open()
 
-    def delete(self, idx):
-        self.items.pop(idx)
-        save_json("vault.json", self.items)
-        self.refresh()
+    def _delete(self, idx):
+        if 0 <= idx < len(self.items):
+            self.items.pop(idx)
+            save_json("vault.json", self.items)
+            self._refresh()
 
-    def msg(self, text):
-        popup = Popup(content=Label(text=text), size_hint=(0.5, 0.3))
+    @staticmethod
+    def _toast(msg):
+        popup = Popup(content=Label(text=msg), size_hint=(0.55, 0.25))
         popup.open()
         Clock.schedule_once(lambda dt: popup.dismiss(), 1.2)
 
-# ═══════════════════════════════════════════
-# APP
-# ═══════════════════════════════════════════
+
+# ---------------- App ----------------
 class JSStudioApp(App):
     def build(self):
         self.title = "JS Studio"
+        Window.bind(on_keyboard=self._on_key)
         sm = ScreenManager()
         sm.add_widget(SplashScreen())
         sm.add_widget(HomeScreen())
@@ -382,16 +472,21 @@ class JSStudioApp(App):
         return sm
 
     def on_start(self):
-        get_dir()
+        get_data_dir()
 
-    def on_keyboard(self, window, key, *args):
+    def _on_key(self, window, key, *args):
+        # Android BACK key == ESC (27)
         if key == 27:
             sm = self.root
-            if sm.current in ("home", "splash"):
+            if sm is None or sm.current in ("splash", "home"):
                 return False
+            if sm.current == "vault" and sm.get_screen("vault").unlocked:
+                sm.get_screen("vault")._show_lock()
+                return True
             sm.current = "home"
             return True
         return False
+
 
 if __name__ == "__main__":
     JSStudioApp().run()

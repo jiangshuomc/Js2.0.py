@@ -18,8 +18,8 @@ android.ndk = 25b
 android.ndk_api = 21
 android.archs = arm64-v8a
 android.private_storage = True
-android.accept_sdk_license = True
 android.enable_androidx = True
+android.accept_sdk_license = True
 android.logcat_filters = *:S python:D
 
 [buildozer]
